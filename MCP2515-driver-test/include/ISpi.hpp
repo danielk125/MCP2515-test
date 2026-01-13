@@ -1,7 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 
-class ISpi {
+struct ISpi {
     virtual ~ISpi() = default;
 
     virtual bool ISpi_transfer(const uint8_t* tx, uint8_t* rx, size_t len) = 0;
