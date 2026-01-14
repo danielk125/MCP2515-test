@@ -1,3 +1,5 @@
+#ifndef IGPIO_HPP
+#define IGPIO_HPP
 #include <cstdint>
 
 enum class GpioLevel : uint8_t { G_LOW = 0, G_HIGH = 1, G_UNDEF = 2};
@@ -9,3 +11,5 @@ struct IGpio {
 
     virtual GpioLevel gpio_read() = 0;
 };
+
+#endif

@@ -2,8 +2,10 @@
 #define ISPI_HPP
 
 #include "../../ISpi.hpp"
-#include <SPI.h>
 #endif
+
+#include <SPI.h>
+
 class ESPSpi final : public ISpi {
     SPISettings _settings;
 
@@ -19,7 +21,7 @@ public:
     bool ISpi_transfer(const uint8_t* tx, uint8_t* rx, size_t len) override {
         if (!tx || !rx || len == 0) return false;
 
-        SPI.beginTransaction(settings_);
+        SPI.beginTransaction(_settings);
         for (size_t i = 0; i < len; i++) {
             rx[i] = SPI.transfer(tx[i]);
         }
@@ -30,7 +32,7 @@ public:
     bool ISpi_write(const uint8_t* tx, size_t len) override {
         if (!tx || len == 0) return false;
 
-        SPI.beginTransaction(settings_);
+        SPI.beginTransaction(_settings);
         for (size_t i = 0; i < len; i++) SPI.transfer(tx[i]);
 
         SPI.endTransaction();

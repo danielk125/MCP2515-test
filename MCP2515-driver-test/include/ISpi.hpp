@@ -1,3 +1,6 @@
+#ifndef IPSI_HPP
+#define ISPI_HPP
+
 #include <cstddef>
 #include <cstdint>
 
@@ -8,3 +11,5 @@ struct ISpi {
 
     virtual bool ISpi_write(const uint8_t* tx, size_t len) = 0;
 };
+
+#endif
