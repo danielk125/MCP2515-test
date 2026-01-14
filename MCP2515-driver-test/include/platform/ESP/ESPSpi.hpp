@@ -3,7 +3,7 @@
 
 #include "../../ISpi.hpp"
 #include <SPI.h>
-
+#endif
 class ESPSpi final : public ISpi {
     SPISettings _settings;
 

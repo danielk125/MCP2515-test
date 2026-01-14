@@ -6,7 +6,7 @@
 
 #endif
 
-enum class GpioMode : uint8_t { OUTPUT = 0, INPUT = 1};
+enum class GpioMode : uint8_t { G_OUTPUT = 0, G_INPUT = 1};
 
 class ESPGpio final : public IGpio {
     uint32_t _pin;
@@ -14,18 +14,18 @@ class ESPGpio final : public IGpio {
 
 public:
     ESPGpio(uint32_t pin, GpioMode mode) : _pin(pin), _mode(mode) {
-        pinMode(_pin, mode == GpioMode::OUTPUT ? OUTPUT : INPUT);
+        pinMode(_pin, mode == GpioMode::G_OUTPUT ? OUTPUT : INPUT);
     }
 
     void gpio_write(GpioLevel level) override {
-        if (_mode == GpioMode::INPUT || level == GpioLevel::UNDEF) return;
+        if (_mode == GpioMode::G_INPUT || level == GpioLevel::G_UNDEF) return;
 
-        digitalWrite(_pin, level == GpioLevel::HIGH ? HIGH : LOW);
+        digitalWrite(_pin, level == GpioLevel::G_HIGH ? HIGH : LOW);
     }
 
     GpioLevel gpio_read() override {
-        if (_mode == GpioMode::OUTPUT) return GpioLevel::UNDEF;
+        if (_mode == GpioMode::G_OUTPUT) return GpioLevel::G_UNDEF;
 
-        return digitalRead(_pin) ? GpioLevel::HIGH : GpioLevel::LOW;
+        return digitalRead(_pin) ? GpioLevel::G_HIGH : GpioLevel::G_LOW;
     }
 };

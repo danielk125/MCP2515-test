@@ -2,7 +2,7 @@
 #include <cstring>
 
 void MCP2515::select(bool set){
-    _cs.gpio_write(set ? GpioLevel::LOW : GpioLevel::HIGH);
+    _cs.gpio_write(set ? GpioLevel::G_LOW : GpioLevel::G_HIGH);
 }
 
 bool MCP2515::reset(){

@@ -20,9 +20,9 @@ class MCP2515 {
 private:
     ISpi& _spi;
     IGpio& _cs;
-    IClock& _clock;
+    I_Clock& _clock;
 public:
-    MCP2515(ISpi& spi, IGpio& cs, IClock& clock) : _spi(spi), _cs(cs), _clock(clock) {}
+    MCP2515(ISpi& spi, IGpio& cs, I_Clock& clock) : _spi(spi), _cs(cs), _clock(clock) {}
 
     bool begin(const bitRateConfig& cfg);
 

@@ -1,6 +1,6 @@
 #include <cstdint>
 
-enum class GpioLevel : uint8_t { LOW = 0, HIGH = 1, UNDEF = 2};
+enum class GpioLevel : uint8_t { G_LOW = 0, G_HIGH = 1, G_UNDEF = 2};
 
 struct IGpio {
     virtual ~IGpio() = default;
