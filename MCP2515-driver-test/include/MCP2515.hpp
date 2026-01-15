@@ -2,6 +2,8 @@
 #include "IGpio.hpp"
 #include "ISpi.hpp"
 
+#include <string>
+
 struct Frame {
     uint32_t id = 0;
     bool extended = false;
@@ -31,7 +33,7 @@ public:
     bool recv(Frame& fr);
 
     // debug
-    bool probe();
+    bool probe(std::string& error);
 
     /*
     uint8_t readRegister(uint8_t addr);

@@ -1,6 +1,7 @@
 #include "../include/MCP2515.hpp"
 #include <cstring>
 
+
 void MCP2515::select(bool set){
     _cs.gpio_write(set ? GpioLevel::G_LOW : GpioLevel::G_HIGH);
 }
@@ -79,15 +80,28 @@ bool MCP2515::readRegisters(uint8_t startAddr, uint8_t* data, uint8_t len) {
     return true;
 }
 
-bool MCP2515::probe(){
+bool MCP2515::probe(std::string& error){
     select(false);
-    if (!reset()) return false;
+    if (!reset()){ 
+        error = "reset failure"; 
+        return false;
+    } 
 
 
-    if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_CONFIG)) return false;
+    if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_CONFIG)){
+        error = "bitmode failure";
+        return false;
+    } 
 
     uint8_t out;
-    if (!readRegister(REG_CANSTAT, out)) return false;
+    if (!readRegister(REG_CANSTAT, out)){
+        error = "read reg failure";
+        return false;
+    };
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "CANSTAT=0x%02X (want OPMOD=0x80)", out);
+    error = buf;
 
     return (out & CANCTRL_REQOP_MASK) == CANCTRL_MODE_CONFIG;
 }
