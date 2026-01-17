@@ -76,6 +76,9 @@ private:
     static constexpr uint8_t REG_RXB0D0    = 0x66;
 
     // Bits/masks
+    static constexpr uint8_t RXB0SIDL_IDE   = 0x08; // SIDL bit3
+    static constexpr uint8_t RXB0DLC_RTR    = 0x40; // DLC bit6
+    static constexpr uint8_t RXB0DLC_LENMSK = 0x0F; // DLC bits3:0
     static constexpr uint8_t CANCTRL_REQOP_MASK = 0xE0;
     static constexpr uint8_t CANCTRL_MODE_CONFIG = 0x80; // 100xxxxx
     static constexpr uint8_t CANCTRL_MODE_NORMAL = 0x00; // 000xxxxx

@@ -105,3 +105,147 @@ bool MCP2515::probe(std::string& error){
 
     return (out & CANCTRL_REQOP_MASK) == CANCTRL_MODE_CONFIG;
 }
+
+void MCP2515::packId(uint32_t id, bool extended, uint8_t& sidh, uint8_t& sidl, uint8_t& eid8, uint8_t& eid0){
+        if (!extended) {
+        // 11-bit standard
+        id &= 0x7FF;
+        sidh = static_cast<uint8_t>(id >> 3);
+        sidl = static_cast<uint8_t>((id & 0x7) << 5); // bits 7..5
+        sidl &= 0xE0;
+        eid8 = 0;
+        eid0 = 0;
+    } else {
+        // 29-bit extended
+        id &= 0x1FFFFFFF;
+        sidh = static_cast<uint8_t>(id >> 21);
+        sidl = static_cast<uint8_t>(((id >> 18) & 0x7) << 5);
+        sidl |= 0x08; // IDE bit
+        sidl |= static_cast<uint8_t>((id >> 16) & 0x3); // EID17..16 into bits 1..0
+        eid8 = static_cast<uint8_t>((id >> 8) & 0xFF);
+        eid0 = static_cast<uint8_t>(id & 0xFF);
+    }
+}
+
+void MCP2515::unpackId(uint8_t sidh, uint8_t sidl, uint8_t eid8, uint8_t eid0, uint32_t& id, bool& extended){
+    extended = (sidl & 0x08) != 0;
+    if (!extended) {
+        id = (static_cast<uint32_t>(sidh) << 3) | (static_cast<uint32_t>(sidl) >> 5);
+        id &= 0x7FF;
+    } else {
+        uint32_t sid = (static_cast<uint32_t>(sidh) << 3) | ((static_cast<uint32_t>(sidl) >> 5) & 0x7);
+        uint32_t eid = (static_cast<uint32_t>(sidl) & 0x3) << 16;
+        eid |= static_cast<uint32_t>(eid8) << 8;
+        eid |= static_cast<uint32_t>(eid0);
+        id = (sid << 18) | eid;
+        id &= 0x1FFFFFFF;
+    }
+}
+
+bool MCP2515::begin(const bitRateConfig& cfg) {
+  // CS should idle high for MCP2515
+  select(false);
+
+  if (!reset()) return false;
+
+  // Enter config mode
+  if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_CONFIG)) return false;
+  _clock.sleepMs(2);
+
+  // Program bit timing (YOU fill cfg.cnf1/2/3)
+  if (!writeRegister(REG_CNF1, cfg.cnf1)) return false;
+  if (!writeRegister(REG_CNF2, cfg.cnf2)) return false;
+  if (!writeRegister(REG_CNF3, cfg.cnf3)) return false;
+
+  // Accept all messages into RXB0 (RXM1:RXM0 = 11)
+  // RXB0CTRL bits 6..5 = 11 => 0x60
+  if (!writeRegister(REG_RXB0CTRL, 0x60)) return false;
+
+  // Enable RX0 interrupt (RX0IE = bit0)
+  if (!writeRegister(REG_CANINTE, 0x01)) return false;
+
+  // Clear RX0IF (and others)
+  if (!writeRegister(REG_CANINTF, 0x00)) return false;
+
+  // Normal mode
+  if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_NORMAL)) return false;
+  _clock.sleepMs(2);
+
+  return true;
+}
+
+bool MCP2515::send(const Frame& f) {
+  // Starter: TXB0 only.
+  // 1) Check TXB0 not busy
+  uint8_t txctrl = 0;
+  if (!readRegister(REG_TXB0CTRL, txctrl)) return false;
+  if (txctrl & TXBCTRL_TXREQ) {
+    // busy
+    return false;
+  }
+
+  // 2) Pack ID fields
+  uint8_t sidh=0, sidl=0, eid8=0, eid0=0;
+  packId(f.id, f.extended, sidh, sidl, eid8, eid0);
+
+  // 3) DLC + RTR
+  uint8_t dlc = (f.dlc <= 8) ? f.dlc : 8;
+  uint8_t txdlc = dlc & 0x0F;
+  if (f.rtr) txdlc |= 0x40; // TXRTR bit (bit6) in TXBnDLC
+
+  // 4) Write header + DLC + data
+  uint8_t hdr[5]{ sidh, sidl, eid8, eid0, txdlc };
+  if (!writeRegisters(REG_TXB0SIDH, hdr, 5)) return false;
+
+  if (!f.rtr && dlc > 0) {
+    if (!writeRegisters(REG_TXB0D0, f.data, dlc)) return false;
+  }
+
+  // 5) Request-to-send TX0
+  uint8_t cmd = CMD_RTS_TX0;
+  select(true);
+  bool ok = _spi.ISpi_write(&cmd, 1);
+  select(false);
+  return ok;
+}
+
+bool MCP2515::recv(Frame& fr) {
+    // 1) Poll: any message in RXB0?
+    uint8_t intf = 0;
+    if (!readRegister(REG_CANINTF, intf)) return false;
+
+    if ((intf & CANINTF_RX0IF) == 0) {
+        return false; // no frame available (polling-only behavior)
+    }
+
+    // 2) Read header: SIDH, SIDL, EID8, EID0, DLC
+    uint8_t hdr[5] = {0};
+    if (!readRegisters(REG_RXB0SIDH, hdr, 5)) return false;
+
+    const uint8_t sidh = hdr[0];
+    const uint8_t sidl = hdr[1];
+    const uint8_t eid8 = hdr[2];
+    const uint8_t eid0 = hdr[3];
+    const uint8_t dlc_raw = hdr[4];
+
+    // 3) Decode control bits
+    fr.extended = (sidl & RXB0SIDL_IDE) != 0;
+    fr.rtr      = (dlc_raw & RXB0DLC_RTR) != 0;
+    fr.dlc      = static_cast<uint8_t>(dlc_raw & RXB0DLC_LENMSK);
+    if (fr.dlc > 8) fr.dlc = 8;
+
+    // 4) Unpack ID
+    unpackId(sidh, sidl, eid8, eid0, fr.id, fr.extended);
+
+    // 5) Read payload if not RTR
+    std::memset(fr.data, 0, sizeof(fr.data));
+    if (!fr.rtr && fr.dlc > 0) {
+        if (!readRegisters(REG_RXB0D0, fr.data, fr.dlc)) return false;
+    }
+
+    // 6) Clear RX0IF
+    // CANINTF bits are cleared by writing 0 to the bit (bit modify is safest)
+    if (!bitModify(REG_CANINTF, CANINTF_RX0IF, 0x00)) return false;
+
+    return true;
+}
