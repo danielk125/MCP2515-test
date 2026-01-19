@@ -14,13 +14,22 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   spi.ESPSpi_init();
+
+  bitRateConfig cfg = { 0x00, 0x91, 0x01 };
+  mcp2515.begin(cfg);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  std::string error = "hello";
-  bool ok = mcp2515.probe(error);
-  Serial.printf("MCP2515 probe: %s\n", !ok ? error.c_str() : "PASS");
+  Frame fr;
+  if (mcp2515.recv(fr)){
+    for (uint8_t i = 0; i < fr.dlc; i++) {
+      Serial.printf("%02X ", fr.data[i]);
+    }
+    Serial.println();
+  } else {
+    Serial.printf("Nothing to receive.\n");
+  }
   delay(1000);
 }
 

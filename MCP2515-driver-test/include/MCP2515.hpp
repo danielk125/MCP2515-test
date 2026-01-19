@@ -13,9 +13,9 @@ struct Frame {
 };
 
 struct bitRateConfig {
-    uint8_t cnf1 = 0x00;
-    uint8_t cnf2 = 0x00;
-    uint8_t cnf3 = 0x00;
+    uint8_t cnf1;
+    uint8_t cnf2;
+    uint8_t cnf3;
 };
 
 class MCP2515 {
