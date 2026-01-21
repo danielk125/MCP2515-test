@@ -250,6 +250,24 @@ bool MCP2515::recv(Frame& fr) {
     return true;
 }
 
-bool MCP2515::checkMissRate(){
+bool MCP2515::updateMissCounter(){
+    // RX10VR
+    uint8_t val;
+    bool passed = readRegister(REG_EFLG, val);
+    if (!passed) {
+        return false;
+    } 
+    uint8_t shifted = val >> 6;
 
+    if (shifted > 0) {
+        missCounter++;
+        // figure out how to reset REG_EFLG
+        return true;
+    }
+    
+    
+}
+
+uint32_t MCP2515::getMissCounter() {
+    return missCounter;
 }

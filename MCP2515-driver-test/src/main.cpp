@@ -4,11 +4,19 @@
 #include "../include/platform/ESP/ESPClock.hpp"
 #include "../include/platform/ESP/ESPGpio.hpp"
 #include "../include/platform/ESP/ESPSpi.hpp"
+#include "virtualTimer.h"
 
 ESPSpi spi(1000000);
 ESPGpio gpio(SS, GpioMode::G_OUTPUT);
 ESPClock clock_esp;
 MCP2515 mcp2515(spi, gpio, clock_esp);
+VirtualTimerGroup debugTimerGroup;
+
+void printMissCounter() {
+  uint32_t missCounter = mcp2515.getMissCounter();
+  Serial.printf("Missed Counter: %d\n", missCounter);
+}
+
 
 void setup() {
   // put your setup code here, to run once:
@@ -18,10 +26,14 @@ void setup() {
 
   bitRateConfig cfg = { 0x00, 0x91, 0x01 };
   mcp2515.begin(cfg);
+  debugTimerGroup.AddTimer(10000, printMissCounter);
+
 }
+
 
 void loop() {
   // put your main code here, to run repeatedly:
+  debugTimerGroup.Tick(millis());
   Frame fr;
   if (mcp2515.recv(fr)){
     for (uint8_t i = 0; i < fr.dlc; i++) {
@@ -31,6 +43,8 @@ void loop() {
   } else {
     Serial.printf("Nothing to receive.\n");
   }
+
+  mcp2515.updateMissCounter();
 
   uint8_t buf[8] = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
   Frame fr_send;
@@ -45,7 +59,7 @@ void loop() {
   } else {
     Serial.printf("Send failed\n");
   }
-  delay(1000);
+  delay(1);
 }
 
 

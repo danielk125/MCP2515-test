@@ -23,6 +23,7 @@ private:
     ISpi& _spi;
     IGpio& _cs;
     IClock& _clock;
+    uint32_t missCounter;
 public:
     MCP2515(ISpi& spi, IGpio& cs, IClock& clock) : _spi(spi), _cs(cs), _clock(clock) {}
 
@@ -35,8 +36,8 @@ public:
     // debug
     bool probe(std::string& error);
 
-    bool checkMissRate();
-
+    bool updateMissCounter();
+    uint32_t getMissCounter();
     /*
     uint8_t readRegister(uint8_t addr);
     uint8_t readStatus();
@@ -76,7 +77,7 @@ private:
     static constexpr uint8_t REG_RXB0EID0  = 0x64;
     static constexpr uint8_t REG_RXB0DLC   = 0x65;
     static constexpr uint8_t REG_RXB0D0    = 0x66;
-
+    static constexpr uint8_t REG_EFLG      = 0x2D;
     // Bits/masks
     static constexpr uint8_t RXB0SIDL_IDE   = 0x08; // SIDL bit3
     static constexpr uint8_t RXB0DLC_RTR    = 0x40; // DLC bit6
