@@ -249,3 +249,7 @@ bool MCP2515::recv(Frame& fr) {
 
     return true;
 }
+
+bool MCP2515::checkMissRate(){
+
+}

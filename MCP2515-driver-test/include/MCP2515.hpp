@@ -35,6 +35,8 @@ public:
     // debug
     bool probe(std::string& error);
 
+    bool checkMissRate();
+
     /*
     uint8_t readRegister(uint8_t addr);
     uint8_t readStatus();

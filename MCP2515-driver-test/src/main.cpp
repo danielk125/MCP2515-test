@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <cstring>
 #include "../include/MCP2515.hpp"
 #include "../include/platform/ESP/ESPClock.hpp"
 #include "../include/platform/ESP/ESPGpio.hpp"
@@ -29,6 +30,20 @@ void loop() {
     Serial.println();
   } else {
     Serial.printf("Nothing to receive.\n");
+  }
+
+  uint8_t buf[8] = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
+  Frame fr_send;
+  fr_send.id = 0;
+  fr_send.extended = false;
+  fr_send.rtr = false;
+  fr_send.dlc = 8;
+  std::memcpy(fr_send.data, buf, 8);
+
+  if (mcp2515.send(fr_send)){
+    Serial.printf("Sent value\n");
+  } else {
+    Serial.printf("Send failed\n");
   }
   delay(1000);
 }
