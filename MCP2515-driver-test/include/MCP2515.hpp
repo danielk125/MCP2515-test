@@ -24,6 +24,7 @@ private:
     IGpio& _cs;
     IClock& _clock;
     uint32_t missCounter;
+    uint32_t recvCount;
 public:
     MCP2515(ISpi& spi, IGpio& cs, IClock& clock) : _spi(spi), _cs(cs), _clock(clock) {}
 
@@ -37,7 +38,7 @@ public:
     bool probe(std::string& error);
 
     bool updateMissCounter();
-    uint32_t getMissCounter();
+    float getMissCounter();
     /*
     uint8_t readRegister(uint8_t addr);
     uint8_t readStatus();

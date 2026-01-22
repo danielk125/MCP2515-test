@@ -1,20 +1,23 @@
 #include <Arduino.h>
 #include <cstring>
+#include <virtualTimer.h>
 #include "../include/MCP2515.hpp"
 #include "../include/platform/ESP/ESPClock.hpp"
 #include "../include/platform/ESP/ESPGpio.hpp"
 #include "../include/platform/ESP/ESPSpi.hpp"
-#include "virtualTimer.h"
+
 
 ESPSpi spi(1000000);
 ESPGpio gpio(SS, GpioMode::G_OUTPUT);
 ESPClock clock_esp;
 MCP2515 mcp2515(spi, gpio, clock_esp);
 VirtualTimerGroup debugTimerGroup;
+uint8_t val = 0;
+uint8_t new_val = 0;
 
 void printMissCounter() {
-  uint32_t missCounter = mcp2515.getMissCounter();
-  Serial.printf("Missed Counter: %d\n", missCounter);
+  float missCounter = mcp2515.getMissCounter();
+  Serial.printf("Missed Counter: %f\n", missCounter);
 }
 
 
@@ -35,16 +38,10 @@ void loop() {
   // put your main code here, to run repeatedly:
   debugTimerGroup.Tick(millis());
   Frame fr;
-  if (mcp2515.recv(fr)){
-    for (uint8_t i = 0; i < fr.dlc; i++) {
-      Serial.printf("%02X ", fr.data[i]);
-    }
-    Serial.println();
-  } else {
-    Serial.printf("Nothing to receive.\n");
-  }
+  mcp2515.recv(fr);
 
   mcp2515.updateMissCounter();
+
 
   uint8_t buf[8] = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
   Frame fr_send;
@@ -54,11 +51,8 @@ void loop() {
   fr_send.dlc = 8;
   std::memcpy(fr_send.data, buf, 8);
 
-  if (mcp2515.send(fr_send)){
-    Serial.printf("Sent value\n");
-  } else {
-    Serial.printf("Send failed\n");
-  }
+  mcp2515.send(fr_send);
+
   delay(1);
 }
 

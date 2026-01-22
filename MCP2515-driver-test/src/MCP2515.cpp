@@ -1,5 +1,6 @@
 #include "../include/MCP2515.hpp"
 #include <cstring>
+#include <Arduino.h>
 
 
 void MCP2515::select(bool set){
@@ -247,6 +248,8 @@ bool MCP2515::recv(Frame& fr) {
     // CANINTF bits are cleared by writing 0 to the bit (bit modify is safest)
     if (!bitModify(REG_CANINTF, CANINTF_RX0IF, 0x00)) return false;
 
+    recvCount++;
+
     return true;
 }
 
@@ -257,17 +260,20 @@ bool MCP2515::updateMissCounter(){
     if (!passed) {
         return false;
     } 
+
     uint8_t shifted = val >> 6;
 
     if (shifted > 0) {
         missCounter++;
         // figure out how to reset REG_EFLG
-        return true;
+        uint8_t new_val = val & 0x3F;
+        writeRegister(REG_EFLG, new_val);
     }
-    
-    
+
+    return true;
 }
 
-uint32_t MCP2515::getMissCounter() {
-    return missCounter;
+float MCP2515::getMissCounter() {
+    if (missCounter + recvCount == 0) return 0;
+    return missCounter/(float)(missCounter + recvCount);
 }
