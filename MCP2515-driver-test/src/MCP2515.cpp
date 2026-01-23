@@ -175,9 +175,7 @@ bool MCP2515::begin(const bitRateConfig& cfg) {
   return true;
 }
 
-bool MCP2515::send(const Frame& f) {
-  // Starter: TXB0 only.
-  // 1) Check TXB0 not busy
+bool MCP2515::send(const CAN_Message& msg) {
   uint8_t txctrl = 0;
   if (!readRegister(REG_TXB0CTRL, txctrl)) return false;
   if (txctrl & TXBCTRL_TXREQ) {
@@ -185,24 +183,24 @@ bool MCP2515::send(const Frame& f) {
     return false;
   }
 
-  // 2) Pack ID fields
   uint8_t sidh=0, sidl=0, eid8=0, eid0=0;
-  packId(f.id, f.extended, sidh, sidl, eid8, eid0);
+  packId(msg._id, msg._extendedId, sidh, sidl, eid8, eid0);
 
-  // 3) DLC + RTR
-  uint8_t dlc = (f.dlc <= 8) ? f.dlc : 8;
+  uint8_t dlc = (msg._length <= 8) ? msg._length : 8;
   uint8_t txdlc = dlc & 0x0F;
-  if (f.rtr) txdlc |= 0x40; // TXRTR bit (bit6) in TXBnDLC
 
-  // 4) Write header + DLC + data
   uint8_t hdr[5]{ sidh, sidl, eid8, eid0, txdlc };
   if (!writeRegisters(REG_TXB0SIDH, hdr, 5)) return false;
 
-  if (!f.rtr && dlc > 0) {
-    if (!writeRegisters(REG_TXB0D0, f.data, dlc)) return false;
+  uint8_t buf[8];
+  for (int i = 0; i < 8; i++){
+    buf[i] = msg._data[i];
   }
 
-  // 5) Request-to-send TX0
+  if (dlc > 0) {
+    if (!writeRegisters(REG_TXB0D0, buf, dlc)) return false;
+  }
+
   uint8_t cmd = CMD_RTS_TX0;
   select(true);
   bool ok = _spi.ISpi_write(&cmd, 1);
@@ -210,16 +208,14 @@ bool MCP2515::send(const Frame& f) {
   return ok;
 }
 
-bool MCP2515::recv(Frame& fr) {
-    // 1) Poll: any message in RXB0?
+bool MCP2515::recv(CAN_Message& msg) {
     uint8_t intf = 0;
     if (!readRegister(REG_CANINTF, intf)) return false;
 
     if ((intf & CANINTF_RX0IF) == 0) {
-        return false; // no frame available (polling-only behavior)
+        return false;
     }
 
-    // 2) Read header: SIDH, SIDL, EID8, EID0, DLC
     uint8_t hdr[5] = {0};
     if (!readRegisters(REG_RXB0SIDH, hdr, 5)) return false;
 
@@ -229,23 +225,24 @@ bool MCP2515::recv(Frame& fr) {
     const uint8_t eid0 = hdr[3];
     const uint8_t dlc_raw = hdr[4];
 
-    // 3) Decode control bits
-    fr.extended = (sidl & RXB0SIDL_IDE) != 0;
-    fr.rtr      = (dlc_raw & RXB0DLC_RTR) != 0;
-    fr.dlc      = static_cast<uint8_t>(dlc_raw & RXB0DLC_LENMSK);
-    if (fr.dlc > 8) fr.dlc = 8;
+    msg._extendedId = (sidl & RXB0SIDL_IDE) != 0;
+    msg._length = static_cast<uint8_t>(dlc_raw & RXB0DLC_LENMSK);
+    if (msg._length > 8) msg._length = 8;
 
-    // 4) Unpack ID
-    unpackId(sidh, sidl, eid8, eid0, fr.id, fr.extended);
+    unpackId(sidh, sidl, eid8, eid0, msg._id, msg._extendedId);
 
-    // 5) Read payload if not RTR
-    std::memset(fr.data, 0, sizeof(fr.data));
-    if (!fr.rtr && fr.dlc > 0) {
-        if (!readRegisters(REG_RXB0D0, fr.data, fr.dlc)) return false;
+    // write to buffer
+    uint8_t buf[8];
+    if (msg._length > 0) {
+        if (!readRegisters(REG_RXB0D0, buf, msg._length)) return false;
     }
 
-    // 6) Clear RX0IF
-    // CANINTF bits are cleared by writing 0 to the bit (bit modify is safest)
+    // write to message
+    for (int i = 0; i < 8; i++){
+        msg._data[i] = buf[i];
+    }
+
+    // CANINTF bits are cleared by writing 0 to the bit
     if (!bitModify(REG_CANINTF, CANINTF_RX0IF, 0x00)) return false;
 
     recvCount++;
@@ -265,9 +262,7 @@ bool MCP2515::updateMissCounter(){
 
     if (shifted > 0) {
         missCounter++;
-        // figure out how to reset REG_EFLG
-        uint8_t new_val = val & 0x3F;
-        writeRegister(REG_EFLG, new_val);
+        bitModify(REG_EFLG, 0xC0, 0x00);
     }
 
     return true;

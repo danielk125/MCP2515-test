@@ -37,21 +37,16 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   debugTimerGroup.Tick(millis());
-  Frame fr;
-  mcp2515.recv(fr);
+  CAN_Message msg;
+  mcp2515.recv(msg);
 
   mcp2515.updateMissCounter();
 
 
-  uint8_t buf[8] = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
-  Frame fr_send;
-  fr_send.id = 0;
-  fr_send.extended = false;
-  fr_send.rtr = false;
-  fr_send.dlc = 8;
-  std::memcpy(fr_send.data, buf, 8);
+  std::array<uint8_t, 8> buf = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
+  CAN_Message msg_send(0, 8, buf, false);
 
-  mcp2515.send(fr_send);
+  mcp2515.send(msg_send);
 
   delay(1);
 }

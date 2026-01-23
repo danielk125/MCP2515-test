@@ -1,16 +1,9 @@
 #include "IClock.hpp"
 #include "IGpio.hpp"
 #include "ISpi.hpp"
+#include "ICAN.hpp"
 
 #include <string>
-
-struct Frame {
-    uint32_t id = 0;
-    bool extended = false;
-    bool rtr = false;
-    uint8_t dlc = 0;
-    uint8_t data[8]{};
-};
 
 struct bitRateConfig {
     uint8_t cnf1;
@@ -18,7 +11,7 @@ struct bitRateConfig {
     uint8_t cnf3;
 };
 
-class MCP2515 {
+class MCP2515 : ICAN {
 private:
     ISpi& _spi;
     IGpio& _cs;
@@ -30,9 +23,9 @@ public:
 
     bool begin(const bitRateConfig& cfg);
 
-    bool send(const Frame& fr);
+    bool send(const CAN_Message& msg) override;
 
-    bool recv(Frame& fr);
+    bool recv(CAN_Message& msg) override;
 
     // debug
     bool probe(std::string& error);
