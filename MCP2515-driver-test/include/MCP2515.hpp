@@ -11,6 +11,13 @@ struct bitRateConfig {
     uint8_t cnf3;
 };
 
+enum class BaudRate {
+    kBaud1M = 1000000,
+    kBaud500K = 500000,
+    kBaud250K = 250000,
+    kBaud125k = 125000
+};
+
 class MCP2515 : ICAN {
 private:
     ISpi& _spi;
@@ -21,22 +28,17 @@ private:
 public:
     MCP2515(ISpi& spi, IGpio& cs, IClock& clock) : _spi(spi), _cs(cs), _clock(clock) {}
 
-    bool begin(const bitRateConfig& cfg);
+    bool begin(const BaudRate baud);
 
-    bool send(const CAN_Message& msg) override;
+    bool send(const CAN_Frame& msg) override;
 
-    bool recv(CAN_Message& msg) override;
+    bool recv(CAN_Frame& msg) override;
 
     // debug
     bool probe(std::string& error);
-
     bool updateMissCounter();
     float getMissCounter();
-    /*
-    uint8_t readRegister(uint8_t addr);
-    uint8_t readStatus();
-    uint8_t readRxStatus();
-    */
+
 private:
     // MCP2515 Instructions
     static constexpr uint8_t CMD_RESET     = 0xC0;
@@ -86,6 +88,7 @@ private:
 
     void select(bool en);
     bool reset();
+    bool baudRateToCNF(BaudRate baud, bitRateConfig& out);
 
     bool writeRegister(uint8_t addr, uint8_t val);
     bool readRegister(uint8_t addr, uint8_t& out);

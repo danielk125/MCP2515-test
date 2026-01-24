@@ -143,39 +143,52 @@ void MCP2515::unpackId(uint8_t sidh, uint8_t sidl, uint8_t eid8, uint8_t eid0, u
     }
 }
 
-bool MCP2515::begin(const bitRateConfig& cfg) {
-  // CS should idle high for MCP2515
-  select(false);
-
-  if (!reset()) return false;
-
-  // Enter config mode
-  if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_CONFIG)) return false;
-  _clock.sleepMs(2);
-
-  // Program bit timing (YOU fill cfg.cnf1/2/3)
-  if (!writeRegister(REG_CNF1, cfg.cnf1)) return false;
-  if (!writeRegister(REG_CNF2, cfg.cnf2)) return false;
-  if (!writeRegister(REG_CNF3, cfg.cnf3)) return false;
-
-  // Accept all messages into RXB0 (RXM1:RXM0 = 11)
-  // RXB0CTRL bits 6..5 = 11 => 0x60
-  if (!writeRegister(REG_RXB0CTRL, 0x60)) return false;
-
-  // Enable RX0 interrupt (RX0IE = bit0)
-  if (!writeRegister(REG_CANINTE, 0x01)) return false;
-
-  // Clear RX0IF (and others)
-  if (!writeRegister(REG_CANINTF, 0x00)) return false;
-
-  // Normal mode
-  if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_NORMAL)) return false;
-  _clock.sleepMs(2);
-
-  return true;
+bool MCP2515::baudRateToCNF(BaudRate baud, bitRateConfig& out) {
+    switch(baud) {
+        case BaudRate::kBaud125k: out = {0x01, 0xB1, 0x05}; return true;
+        case BaudRate::kBaud250K: out = {0x00, 0xB1, 0x05}; return true;
+        case BaudRate::kBaud500K: out = {0x00, 0x91, 0x01}; return true;
+        case BaudRate::kBaud1M  : out = {0x00, 0x80, 0x00}; return true;
+        default: return false;
+    }
 }
 
-bool MCP2515::send(const CAN_Message& msg) {
+bool MCP2515::begin(const BaudRate baud) {
+    bitRateConfig cfg;
+    baudRateToCNF(baud, cfg);
+
+    // CS should idle high for MCP2515
+    select(false);
+
+    if (!reset()) return false;
+
+    // Enter config mode
+    if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_CONFIG)) return false;
+    _clock.sleepMs(2);
+
+    // Program bit timing (YOU fill cfg.cnf1/2/3)
+    if (!writeRegister(REG_CNF1, cfg.cnf1)) return false;
+    if (!writeRegister(REG_CNF2, cfg.cnf2)) return false;
+    if (!writeRegister(REG_CNF3, cfg.cnf3)) return false;
+
+    // Accept all messages into RXB0 (RXM1:RXM0 = 11)
+    // RXB0CTRL bits 6..5 = 11 => 0x60
+    if (!writeRegister(REG_RXB0CTRL, 0x60)) return false;
+
+    // Enable RX0 interrupt (RX0IE = bit0)
+    if (!writeRegister(REG_CANINTE, 0x01)) return false;
+
+    // Clear RX0IF (and others)
+    if (!writeRegister(REG_CANINTF, 0x00)) return false;
+
+    // Normal mode
+    if (!bitModify(REG_CANCTRL, CANCTRL_REQOP_MASK, CANCTRL_MODE_NORMAL)) return false;
+    _clock.sleepMs(2);
+
+    return true;
+}
+
+bool MCP2515::send(const CAN_Frame& msg) {
   uint8_t txctrl = 0;
   if (!readRegister(REG_TXB0CTRL, txctrl)) return false;
   if (txctrl & TXBCTRL_TXREQ) {
@@ -208,7 +221,7 @@ bool MCP2515::send(const CAN_Message& msg) {
   return ok;
 }
 
-bool MCP2515::recv(CAN_Message& msg) {
+bool MCP2515::recv(CAN_Frame& msg) {
     uint8_t intf = 0;
     if (!readRegister(REG_CANINTF, intf)) return false;
 
