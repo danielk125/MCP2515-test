@@ -27,8 +27,8 @@ void setup() {
   delay(200);
   spi.ESPSpi_init();
 
-  bitRateConfig cfg = { 0x00, 0x91, 0x01 };
-  mcp2515.begin(cfg);
+  BaudRate baud500k = BaudRate::kBaud500K;
+  mcp2515.begin(baud500k);
   debugTimerGroup.AddTimer(10000, printMissCounter);
 
 }
@@ -37,16 +37,16 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   debugTimerGroup.Tick(millis());
-  CAN_Message msg;
-  mcp2515.recv(msg);
+  CAN_Frame fr;
+  mcp2515.recv(fr);
 
   mcp2515.updateMissCounter();
 
 
   std::array<uint8_t, 8> buf = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
-  CAN_Message msg_send(0, 8, buf, false);
+  CAN_Frame fr_send(0, 8, buf, false);
 
-  mcp2515.send(msg_send);
+  mcp2515.send(fr);
 
   delay(1);
 }
