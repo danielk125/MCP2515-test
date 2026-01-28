@@ -1,9 +1,12 @@
 #include "ICAN.hpp"
+#include "virtualTimer.h"
+
 #include <variant>
 #include <cassert>
 #include <cmath>
 #include <unordered_map>
 #include <memory>
+#include <functional>
 
 typedef uint64_t RawSignalValue;
 
@@ -243,6 +246,7 @@ struct ICAN_Message {
     virtual ~ICAN_Message() = default;
     virtual MsgKey key() const = 0;
     virtual uint8_t length() const = 0;
+    virtual bool isRX() const = 0;
 
     virtual bool decode_from(const CAN_Frame& frame) = 0;
 
@@ -256,9 +260,43 @@ class CAN_Bus {
 
     std::unordered_map<MsgKey, std::unique_ptr<ICAN_Message>, MsgKeyHash> _rx_map;
 public:
-    explicit CAN_Bus(ICAN& can) : _can(can) {};
+    explicit CAN_Bus(ICAN& can) : _can(can) {}
 
-    void tick_bus();
+    void register_message(ICAN_Message& msg) {
+        auto k = msg.key();
+        auto [it, inserted] = _rx_map.emplace(k, &msg);
+        if (!inserted) {
+            throw std::runtime_error("Duplicate message key registered");
+        }
+    }
+
+    void unregister_message(ICAN_Message& msg) {
+        auto k = msg.key();
+        auto it = _rx_map.find(k);
+        if (it != _rx_map.end() && it->second.get() == &msg) {
+            _rx_map.erase(it);
+        }
+    }
+
+    bool send(const ICAN_Message& msg) {
+        return _can.send(msg.encode_to_frame());
+    }
+
+    uint32_t get_time() {
+        return _can.time_ms();
+    }
+
+    void tick_bus() {
+        CAN_Frame rx_msg;
+        while (_can.recv(rx_msg)) {
+            MsgKey k{rx_msg._id, rx_msg._extendedId};
+
+            auto it = _rx_map.find(k);
+            if (it != _rx_map.end()) {
+                it->second->decode_from(rx_msg);
+            }
+        }
+    }
 
     /*
     BUS uses underlying can implementation to pull frames
@@ -267,32 +305,131 @@ public:
     */
 };
 
-
 template<size_t num_signals>
 class CAN_Message : public ICAN_Message {
 public:
+
+    // Constructor for RX message with no callback
     template <class... Ts>
     CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, Ts&&... signals) : 
-    _bus(bus), _id(id), _extended(extended), _length(length), _signals{ std::forward<Ts>(signals)... } {
-        static_assert(sizeof...(signals) == num_signals, "wrong number of signals");
+        CAN_Message(bus, 
+                    id, 
+                    extended, 
+                    length, 
+                    std::function<void()>{}, // default to void
+                    std::forward<Ts>(signals)...) 
+    {}
 
-        // add self to bus
-        // how to construct itself in bus's data structure
+    // Constructor for RX message with callback
+    template <class... Ts>
+    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, std::function<void(void)> callback_function, Ts&&... signals) : 
+        _bus(bus), 
+        _id(id), 
+        _extended(extended), 
+        _length(length), 
+        _callback_function(std::move(callback_function)), 
+        _signals{ std::forward<Ts>(signals)... } 
+    {
+        static_assert(sizeof...(signals) == num_signals, "wrong number of signals");
+        _last_recv_time = 0;
+        _bus.register_message(*this);
     }
 
+    // Constructor for TX message
+    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, uint32_t period, VirtualTimerGroup& timerGroup, Ts&&... signals) :
+        _bus(bus), 
+        _id(id), 
+        _extended(extended), 
+        _length(length), 
+        _transmit_timer(period, [this]() { _bus.send(*this); }, VirtualTimer::Type::kRepeating),
+        _signals{ std::forward<Ts>(signals)... }
+    {
+        timerGroup.AddTimer(_transmit_timer);
+    }
+
+    ~CAN_Message() override {
+        if (_isRX) _bus.unregister_message(*this);
+        else TX_disable();
+    }
+
+    MsgKey key() const override { return {_id, _extended}; }
     uint32_t id() { return _id; }
-    uint8_t length() { return _length; }
+    uint8_t length() const override { return _length; }
     bool extended() { return _extended; }
+    bool isRX() { return _isRX; }
 
-    bool decode_from(const CAN_Frame& frame);
+    bool decode_from(const CAN_Frame& frame){
+        std::array<uint8_t, 8> data = frame._data;
+        _raw = *reinterpret_cast<uint64_t*>(data);
 
-    CAN_Frame encode_to_frame() const;
+        for (int i = 0; i < num_signals; i++){
+            _signals.at(i).decode(data);
+        }
+
+        if (_isRX && _callback_function) { _callback_function(); }
+
+        _last_recv_time = _bus.get_time();
+    }
+
+    CAN_Frame encode_to_frame() const {
+        CAN_Frame fr;
+
+        fr._id = _id;
+        fr._extendedId = _extended;
+        fr._length = _length;
+        
+        std::array<uint8_t, 8> data;
+
+        for (int i = 0; i < num_signals; i++){
+            _signals.at(i).encode(data);
+        }
+
+        _raw = *reinterpret_cast<uint64_t*>(data);
+        fr._data = data;
+
+        return fr;
+    }
+
+    bool TX_enable() {
+        if (!_isRX) {
+            _transmit_timer.Enable();
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TX_disable() {
+        if (!_isRX) {
+            _transmit_timer.Disable();
+            return true;
+        }
+
+        return false;
+    }
+
+    uint32_t getLastRecvTimeMS() {
+        if (_isRX) 
+            return _last_recv_time;
+        else 
+            return 0;
+    }
 
 private:
 
     CAN_Bus& _bus;
-    std::array<CAN_Signal, num_signals> _signals;
     uint32_t _id;
     uint8_t _length;
     bool _extended;
+    bool _isRX;
+    std::array<CAN_Signal, num_signals> _signals;
+    uint64_t _raw;
+
+    uint32_t _last_recv_time;
+    std::function<void(void)> _callback_function;
+
+    VirtualTimer _transmit_timer;
 };
+
+#define MakeRXCanMessageCallback(num_signals, can_bus, msg_id, extended, length, callback_function, signals...) \
+        CAN_Message<num_signals>(can_bus, msg_id, extended, length, callback_function, signals...);

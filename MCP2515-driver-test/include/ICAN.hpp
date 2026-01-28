@@ -19,4 +19,6 @@ struct ICAN {
     virtual bool send(const CAN_Frame& msg) = 0;
 
     virtual bool recv(CAN_Frame& msg) = 0;
+
+    virtual uint32_t time_ms() = 0;
 };

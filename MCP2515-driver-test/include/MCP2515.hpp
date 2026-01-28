@@ -34,6 +34,8 @@ public:
 
     bool recv(CAN_Frame& msg) override;
 
+    uint32_t time_ms() override;
+
     // debug
     bool probe(std::string& error);
     bool updateMissCounter();

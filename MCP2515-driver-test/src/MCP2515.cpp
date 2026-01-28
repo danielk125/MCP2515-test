@@ -263,6 +263,10 @@ bool MCP2515::recv(CAN_Frame& msg) {
     return true;
 }
 
+uint32_t MCP2515::time_ms() {
+    return _clock.monotonicMs();
+}
+
 bool MCP2515::updateMissCounter(){
     // RX10VR
     uint8_t val;
