@@ -30,26 +30,15 @@ void setup() {
 
   BaudRate baud500k = BaudRate::kBaud500K;
   mcp2515.begin(baud500k);
-  debugTimerGroup.AddTimer(10000, printMissCounter);
+
 
 }
 
 
 void loop() {
   // put your main code here, to run repeatedly:
-  debugTimerGroup.Tick(millis());
-  CAN_Frame fr;
-  mcp2515.recv(fr);
-
-  mcp2515.updateMissCounter();
 
 
-  std::array<uint8_t, 8> buf = { 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD };
-  CAN_Frame fr_send(0, 8, buf, false);
-
-  mcp2515.send(fr);
-
-  delay(1);
 }
 
 

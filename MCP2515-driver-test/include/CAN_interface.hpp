@@ -24,6 +24,19 @@ enum class SignalType {
     BOOL
 };
 
+template <class T> struct SignalTypeOf;
+
+template <> struct SignalTypeOf<uint8_t>  { static constexpr SignalType value = SignalType::UINT8;  };
+template <> struct SignalTypeOf<uint16_t> { static constexpr SignalType value = SignalType::UINT16; };
+template <> struct SignalTypeOf<uint32_t> { static constexpr SignalType value = SignalType::UINT32; };
+template <> struct SignalTypeOf<uint64_t> { static constexpr SignalType value = SignalType::UINT64; };
+template <> struct SignalTypeOf<int8_t>   { static constexpr SignalType value = SignalType::INT8;   };
+template <> struct SignalTypeOf<int16_t>  { static constexpr SignalType value = SignalType::INT16;  };
+template <> struct SignalTypeOf<int32_t>  { static constexpr SignalType value = SignalType::INT32;  };
+template <> struct SignalTypeOf<int64_t>  { static constexpr SignalType value = SignalType::INT64;  };
+template <> struct SignalTypeOf<float>    { static constexpr SignalType value = SignalType::FLOAT;  };
+template <> struct SignalTypeOf<bool>     { static constexpr SignalType value = SignalType::BOOL;   };
+
 enum class Endianness {
     littleEndian,
     bigEndian
@@ -107,16 +120,23 @@ static inline uint64_t maskN(uint8_t n) {
     return (n == 64) ? ~0ULL : ((1ULL << n) - 1ULL);
 }
 
-class CAN_Signal {
-public:
-    CAN_Signal(SignalType sType, uint8_t startBit, uint8_t length, double factor, double offset, bool isSigned = true, Endianness endian = Endianness::littleEndian) :
-    _sType(sType), _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian) 
-    {
-        _sValue = defaultValueFor(sType);
-        _sRawValue = 0;
-    };
+class ICAN_Signal {
+    virtual ~ICAN_Signal() = default;
 
-    SignalType s() { return _sType; }
+    virtual void decode(const std::array<uint8_t, 8>& data) = 0;
+
+    virtual void encode(std::array<uint8_t, 8>& data) const = 0;
+};
+
+template <typename T>
+class CAN_Signal : public ICAN_Signal {
+public:
+    CAN_Signal(uint8_t startBit, uint8_t length, double factor, double offset, bool isSigned = true, Endianness endian = Endianness::littleEndian) :
+    _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian) 
+    {
+        _sRawValue = 0;
+    }
+
     uint8_t startBit() { return _startBit; }
     uint8_t length() { return _length; }
     double  factor() { return _factor; }
@@ -124,20 +144,14 @@ public:
     bool    isSigned() { return _isSigned; }
     RawSignalValue getRawValue() { return _sRawValue; }
 
-    template <typename T>
-    T get() const { 
-        if constexpr (_sType == SignalType::UINT8 && std::is_same_v<float, T>){
-            return;
-        }
+    T get() const { return _sValue; }
 
-        // finish this compile time type checking
-
-        return std::get<T>(_sValue);
-    }
+    void set(T val) { _sValue = val; }
 
     void decode(const std::array<uint8_t, 8>& data) {
         // 1) extract raw bits
         uint64_t rawU = _endian == Endianness::bigEndian ? extractRawBE(data, _startBit, _length) : extractRawLE(data, _startBit, _length);
+        _sRawValue = rawU;
 
         // 2) interpret signed/unsigned raw
         double phys = 0.0;
@@ -149,12 +163,12 @@ public:
         }
 
         // 3) store into variant in the correct type
-        storePhysicalIntoValue(phys);
+        _sValue = (T)phys; 
     }
     
     void encode(std::array<uint8_t, 8>& data) const {
         // 1) read physical from _value as double
-        double phys = physicalAsDouble();
+        double phys = (double)_sValue;
 
         // 2) physical -> raw (inverse scaling)
         double rawD = (phys - _offset) / _factor;
@@ -182,44 +196,13 @@ public:
 private:
     using SignalValue = std::variant<uint8_t, uint16_t, uint32_t, uint64_t, int8_t, int16_t, int32_t, int64_t, float, bool>;
 
-    static SignalValue defaultValueFor(SignalType t) {
-        switch (t) {
-            case SignalType::UINT8:  return uint8_t{0};
-            case SignalType::UINT16: return uint16_t{0};
-            case SignalType::UINT32: return uint32_t{0};
-            case SignalType::INT8:   return int8_t{0};
-            case SignalType::INT16:  return int16_t{0};
-            case SignalType::INT32:  return int32_t{0};
-            case SignalType::FLOAT:  return float{0.0f};
-        }
-        return uint32_t{0}; // warning supression
-    }
-
-    double physicalAsDouble() const {
-        // Convert whatever is in the variant to double
-        return std::visit([](auto v) -> double { return (double)v; }, _sValue);
-    }
-
-    void storePhysicalIntoValue(double phys){
-        switch (_sType) {
-            case SignalType::UINT8:  _sValue = (uint8_t)phys; break;
-            case SignalType::UINT16: _sValue = (uint16_t)phys; break;
-            case SignalType::UINT32: _sValue = (uint32_t)phys; break;
-            case SignalType::INT8:   _sValue = (int8_t)phys; break;
-            case SignalType::INT16:  _sValue = (int16_t)phys; break;
-            case SignalType::INT32:  _sValue = (int32_t)phys; break;
-            case SignalType::FLOAT:  _sValue = (float)phys; break;
-        }
-    }
-
-    SignalType      _sType;
     uint8_t         _startBit;
     uint8_t         _length;
     double          _factor;
     double          _offset;
     bool            _isSigned;
     Endianness      _endian;
-    SignalValue     _sValue;
+    T               _sValue;
     RawSignalValue  _sRawValue;
 };
 
@@ -244,17 +227,16 @@ struct ICAN_Message {
     virtual uint8_t length() const = 0;
     virtual bool isRX() const = 0;
 
-    virtual bool decode_from(const CAN_Frame& frame) = 0;
+    virtual void decode_from(const CAN_Frame& frame) = 0;
 
     virtual CAN_Frame encode_to_frame() const = 0;
 };
 
 
-
 class CAN_Bus {
     ICAN& _can;
 
-    std::unordered_map<MsgKey, std::unique_ptr<ICAN_Message>, MsgKeyHash> _rx_map;
+    std::unordered_map<MsgKey, ICAN_Message*, MsgKeyHash> _rx_map;
 public:
     explicit CAN_Bus(ICAN& can) : _can(can) {}
 
@@ -269,7 +251,7 @@ public:
     void unregister_message(ICAN_Message& msg) {
         auto k = msg.key();
         auto it = _rx_map.find(k);
-        if (it != _rx_map.end() && it->second.get() == &msg) {
+        if (it != _rx_map.end() && it->second == &msg) {
             _rx_map.erase(it);
         }
     }
@@ -288,7 +270,7 @@ public:
             MsgKey k{rx_msg._id, rx_msg._extendedId};
 
             auto it = _rx_map.find(k);
-            if (it != _rx_map.end()) {
+            if (it != _rx_map.end() && it->second) {
                 it->second->decode_from(rx_msg);
             }
         }
@@ -299,46 +281,57 @@ template<size_t num_signals>
 class CAN_Message : public ICAN_Message {
 public:
 
+    template<class>
+    struct is_shared_ptr_to_ican_signal : std::false_type {};
+
+    template<class U>
+    struct is_shared_ptr_to_ican_signal<std::shared_ptr<U>>
+    : std::bool_constant<std::is_base_of_v<ICAN_Signal, U>> {};
+
     // Constructor for RX message with no callback
-    template <class... Ts>
-    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, Ts&&... signals) : 
+    template <class... Ps>
+    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, Ps&&... signals) : 
         CAN_Message(bus, 
                     id, 
                     extended, 
                     length, 
                     std::function<void()>{}, // default to void
-                    std::forward<Ts>(signals)...) 
+                    std::forward<Ps>(signals)...) 
     {}
 
     // Constructor for RX message with callback
-    template <class... Ts>
-    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, std::function<void(void)> callback_function, Ts&&... signals) : 
+    template <class... Ps>
+    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, std::function<void(void)> callback_function, Ps&&... signals) : 
         _bus(bus), 
         _id(id), 
         _extended(extended), 
         _length(length), 
         _callback_function(std::move(callback_function)), 
-        _signals{ std::forward<Ts>(signals)... } 
+        _signals{ std::static_pointer_cast<ICAN_Signal>(std::forward<Ps>(signals))... },
+        _isRX(true),
+        _last_recv_time(0)
     {
         static_assert(sizeof...(signals) == num_signals - 1, "wrong number of signals");
-        _last_recv_time = 0;
+        static_assert((is_shared_ptr_to_ican_signal<std::decay_t<Ps>>::value && ...),
+                  "Signals must be shared_ptr to ICAN_Signal-derived");
         _bus.register_message(*this);
-        _isRX = true;
     }
 
     // Constructor for TX message
-    template <class... Ts>
-    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, uint32_t period, VirtualTimerGroup& timerGroup, Ts&&... signals) :
+    template <class... Ps>
+    CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, uint32_t period, VirtualTimerGroup& timerGroup, Ps&&... signals) :
         _bus(bus), 
         _id(id), 
         _extended(extended), 
         _length(length), 
         _transmit_timer(period, [this]() { _bus.send(*this); }, VirtualTimer::Type::kRepeating),
-        _signals{ std::forward<Ts>(signals)... }
+        _signals{ std::static_pointer_cast<ICAN_Signal>(std::forward<Ps>(signals))... },
+        _isRX(false)
     {
         static_assert(sizeof...(signals) == num_signals - 1, "wrong number of signals");
+        static_assert((is_shared_ptr_to_ican_signal<std::decay_t<Ps>>::value && ...),
+                  "Signals must be shared_ptr to ICAN_Signal-derived");
         timerGroup.AddTimer(_transmit_timer);
-        _isRX = false;
     }
 
     ~CAN_Message() override {
@@ -418,7 +411,7 @@ private:
     uint8_t _length;
     bool _extended;
     std::function<void(void)> _callback_function;
-    std::array<CAN_Signal, num_signals> _signals;
+    std::array<std::unique_ptr<ICAN_Signal>, num_signals> _signals;
 
     bool _isRX;
     uint32_t _last_recv_time;
@@ -431,3 +424,5 @@ private:
 #define MakeRXCanMessage(num_signals) CAN_Message<num_signals>
 
 #define MakeTXCanMessage(num_signals) CAN_Message<num_signals>
+
+
