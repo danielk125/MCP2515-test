@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <memory>
 #include <functional>
+#include <type_traits>
 
 typedef uint64_t RawSignalValue;
 
@@ -109,7 +110,8 @@ static inline uint64_t maskN(uint8_t n) {
 class CAN_Signal {
 public:
     CAN_Signal(SignalType sType, uint8_t startBit, uint8_t length, double factor, double offset, bool isSigned = true, Endianness endian = Endianness::littleEndian) :
-    _sType(sType), _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian) {
+    _sType(sType), _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian) 
+    {
         _sValue = defaultValueFor(sType);
         _sRawValue = 0;
     };
@@ -122,21 +124,15 @@ public:
     bool    isSigned() { return _isSigned; }
     RawSignalValue getRawValue() { return _sRawValue; }
 
-    template <class T>
+    template <typename T>
     T get() const { 
-        static_assert(std::is_same_v<T,uint8_t>  || std::is_same_v<T,uint16_t> || std::is_same_v<T,uint32_t> || std::is_same_v<T,uint64_t>
-                    std::is_same_v<T,int8_t>   || std::is_same_v<T,int16_t>  || std::is_same_v<T,int32_t>  || std::is_same_v<T,int64_t>
-                    std::is_same_v<T,float>    || std::is_same_v<T,bool>,
-                    "T is not a supported SignalType");
-
-        // runtime: ensure the signal was declared as that type
-        if (_type != SignalTypeOf<T>::value) {
-            assert(false && "CAN_Signal: T does not match signal's declared SignalType");
-            std::abort();
+        if constexpr (_sType == SignalType::UINT8 && std::is_same_v<float, T>){
+            return;
         }
 
-        // you can store _value as the matching alternative always, so this should succeed
-        return std::get<T>(_value);
+        // finish this compile time type checking
+
+        return std::get<T>(_sValue);
     }
 
     void decode(const std::array<uint8_t, 8>& data) {
@@ -297,12 +293,6 @@ public:
             }
         }
     }
-
-    /*
-    BUS uses underlying can implementation to pull frames
-    frame ID's are used to find message
-    message decodes the frame, updating each of its signals
-    */
 };
 
 template<size_t num_signals>
@@ -330,12 +320,14 @@ public:
         _callback_function(std::move(callback_function)), 
         _signals{ std::forward<Ts>(signals)... } 
     {
-        static_assert(sizeof...(signals) == num_signals, "wrong number of signals");
+        static_assert(sizeof...(signals) == num_signals - 1, "wrong number of signals");
         _last_recv_time = 0;
         _bus.register_message(*this);
+        _isRX = true;
     }
 
     // Constructor for TX message
+    template <class... Ts>
     CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, uint32_t period, VirtualTimerGroup& timerGroup, Ts&&... signals) :
         _bus(bus), 
         _id(id), 
@@ -344,7 +336,9 @@ public:
         _transmit_timer(period, [this]() { _bus.send(*this); }, VirtualTimer::Type::kRepeating),
         _signals{ std::forward<Ts>(signals)... }
     {
+        static_assert(sizeof...(signals) == num_signals - 1, "wrong number of signals");
         timerGroup.AddTimer(_transmit_timer);
+        _isRX = false;
     }
 
     ~CAN_Message() override {
@@ -358,9 +352,12 @@ public:
     bool extended() { return _extended; }
     bool isRX() { return _isRX; }
 
-    bool decode_from(const CAN_Frame& frame){
+    void decode_from(const CAN_Frame& frame){
         std::array<uint8_t, 8> data = frame._data;
-        _raw = *reinterpret_cast<uint64_t*>(data);
+
+        uint64_t tmp = 0;
+        std::memcpy(&tmp, data.data(), sizeof(tmp));
+        _raw = tmp;
 
         for (int i = 0; i < num_signals; i++){
             _signals.at(i).decode(data);
@@ -378,13 +375,12 @@ public:
         fr._extendedId = _extended;
         fr._length = _length;
         
-        std::array<uint8_t, 8> data;
+        std::array<uint8_t, 8> data {};
 
         for (int i = 0; i < num_signals; i++){
             _signals.at(i).encode(data);
         }
 
-        _raw = *reinterpret_cast<uint64_t*>(data);
         fr._data = data;
 
         return fr;
@@ -421,15 +417,17 @@ private:
     uint32_t _id;
     uint8_t _length;
     bool _extended;
-    bool _isRX;
-    std::array<CAN_Signal, num_signals> _signals;
-    uint64_t _raw;
-
-    uint32_t _last_recv_time;
     std::function<void(void)> _callback_function;
+    std::array<CAN_Signal, num_signals> _signals;
 
+    bool _isRX;
+    uint32_t _last_recv_time;
+    uint64_t _raw;
     VirtualTimer _transmit_timer;
 };
 
-#define MakeRXCanMessageCallback(num_signals, can_bus, msg_id, extended, length, callback_function, signals...) \
-        CAN_Message<num_signals>(can_bus, msg_id, extended, length, callback_function, signals...);
+#define MakeRXCanMessageCallback(num_signals) CAN_Message<num_signals>
+
+#define MakeRXCanMessage(num_signals) CAN_Message<num_signals>
+
+#define MakeTXCanMessage(num_signals) CAN_Message<num_signals>

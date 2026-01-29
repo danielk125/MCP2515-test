@@ -1,3 +1,5 @@
+#ifndef ICAN_HPP
+#define ICAN_HPP
 #include <array>
 
 struct CAN_Frame {
@@ -22,3 +24,5 @@ struct ICAN {
 
     virtual uint32_t time_ms() = 0;
 };
+
+#endif

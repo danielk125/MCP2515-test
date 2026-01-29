@@ -2,6 +2,7 @@
 #include <cstring>
 #include <virtualTimer.h>
 #include "../include/MCP2515.hpp"
+#include "../include/CAN_interface.hpp"
 #include "../include/platform/ESP/ESPClock.hpp"
 #include "../include/platform/ESP/ESPGpio.hpp"
 #include "../include/platform/ESP/ESPSpi.hpp"
