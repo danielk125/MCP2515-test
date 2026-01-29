@@ -30,7 +30,7 @@ void setup() {
   CAN_Signal_UINT8 test_sig_3 = MakeSignal(uint8_t, 16, 8, 0, 0);
   CAN_Signal_UINT8 test_sig_4 = MakeSignal(uint8_t, 24, 8, 0, 0);
 
-  MakeRXCanMessage(4) test_msg(drive_bus, 0x001, false, 4, test_sig_1, test_sig_2, test_sig_3, test_sig_4);
+  RX_CAN_Message(4) test_msg(drive_bus, 0x001, false, 4, test_sig_1, test_sig_2, test_sig_3, test_sig_4);
 
   test_sig_1->set(5);
   auto val = test_sig_1->get();

@@ -1,7 +1,6 @@
 #include "ICAN.hpp"
 #include "virtualTimer.h"
 
-#include <variant>
 #include <cassert>
 #include <cmath>
 #include <unordered_map>
@@ -9,90 +8,23 @@
 #include <functional>
 #include <type_traits>
 
-typedef uint64_t RawSignalValue;
+// Bit helpers -- defined at the bottom
+static inline uint8_t  getBit(const std::array<uint8_t, 8>& data, uint16_t bitIndex);
+static inline void     setBit(std::array<uint8_t, 8>& data, uint16_t bitIndex, uint8_t v);
+static inline uint64_t extractRawLE(const std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length);
+static inline void     insertRawLE(std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length, uint64_t raw);
+static inline uint16_t BENextBit(uint16_t currentBit);
+static inline uint64_t extractRawBE(const std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length);
+static inline void     insertRawBE(std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length, uint64_t raw);
+static inline int64_t  signExtend(uint64_t raw, uint8_t length);
+static inline uint64_t maskN(uint8_t n);
+
+using RawSignalValue = uint64_t;
 
 enum class Endianness {
     littleEndian,
     bigEndian
 };
-
-static inline uint8_t getBit(const std::array<uint8_t, 8>& data, uint16_t bitIndex) {
-    return (data[bitIndex / 8] >> (bitIndex % 8)) & 1u;
-}
-
-static inline void setBit(std::array<uint8_t, 8>& data, uint16_t bitIndex, uint8_t v) {
-    uint8_t &b = data[bitIndex / 8];
-    uint8_t mask = uint8_t(1u << (bitIndex % 8));
-    if (v) b |= mask;
-    else   b &= uint8_t(~mask);
-}
-
-static inline uint64_t extractRawLE(const std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length)
-{
-    assert(length >= 1 && length <= 64);
-    uint64_t raw = 0;
-    for (uint8_t i = 0; i < length; ++i) {
-        raw |= (uint64_t)getBit(data, startBit + i) << i;
-    }
-    return raw;
-}
-
-static inline void insertRawLE(std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length, uint64_t raw)
-{
-    assert(length >= 1 && length <= 64);
-    for (uint8_t i = 0; i < length; ++i) {
-        setBit(data, startBit + i, (raw >> i) & 1u);
-    }
-}
-
-static inline uint16_t BENextBit(uint16_t currentBit) {
-    uint16_t byte = currentBit / 8;
-    uint16_t bit  = currentBit % 8;
-
-    if (bit == 0) {
-        return uint16_t((byte + 1) * 8 + 7);
-    }
-    return uint16_t(byte * 8 + (bit - 1));
-}
-
-static inline uint64_t extractRawBE(const std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length)
-{
-    assert(length >= 1 && length <= 64);
-    uint64_t raw = 0;
-    uint16_t p = startBit;
-
-    for (uint8_t i = 0; i < length; ++i) {
-        raw = (raw << 1) | (uint64_t)getBit(data, p);
-        p = BENextBit(p);
-    }
-    return raw;
-}
-
-static inline void insertRawBE(std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length, uint64_t raw)
-{
-    assert(length >= 1 && length <= 64);
-    uint16_t p = startBit;
-
-    for (uint8_t i = 0; i < length; ++i) {
-        uint8_t bit = (raw >> (length - 1 - i)) & 1u;
-        setBit(data, p, bit);
-        p = BENextBit(p);
-    }
-}
-
-static inline int64_t signExtend(uint64_t raw, uint8_t length) {
-    if (length == 64) return (int64_t)raw;
-    uint64_t sign = 1ULL << (length - 1);
-    if (raw & sign) {
-        uint64_t mask = ~((1ULL << length) - 1ULL);
-        return (int64_t)(raw | mask);
-    }
-    return (int64_t)raw;
-}
-
-static inline uint64_t maskN(uint8_t n) {
-    return (n == 64) ? ~0ULL : ((1ULL << n) - 1ULL);
-}
 
 struct ICAN_Signal {
     virtual ~ICAN_Signal() = default;
@@ -165,8 +97,6 @@ public:
     }
 
 private:
-    using SignalValue = std::variant<uint8_t, uint16_t, uint32_t, uint64_t, int8_t, int16_t, int32_t, int64_t, float, bool>;
-
     uint8_t         _startBit;
     uint8_t         _length;
     double          _factor;
@@ -338,15 +268,13 @@ public:
         fr._id = _id;
         fr._extendedId = _extended;
         fr._length = _length;
-        
-        std::array<uint8_t, 8> data {};
 
+        std::array<uint8_t, 8> data {};
         for (int i = 0; i < num_signals; i++){
             _signals.at(i)->encode(data);
         }
 
         fr._data = data;
-
         return fr;
     }
 
@@ -355,7 +283,6 @@ public:
             _transmit_timer.Enable();
             return true;
         }
-
         return false;
     }
 
@@ -364,7 +291,6 @@ public:
             _transmit_timer.Disable();
             return true;
         }
-
         return false;
     }
 
@@ -390,12 +316,24 @@ private:
     VirtualTimer _transmit_timer;
 };
 
-#define MakeRXCanMessageCallback(num_signals) CAN_Message<num_signals>
+// macros for constructing signals and messages in a readable way
+/*
+    IMPORTANT
+    Message macros do not actually enforce that you use the correct constructor!
+    They are purely for enhancing readability.
+    You still should use the associated constructor for RX or TX messages.
+*/
+#define RX_CAN_Message_Callback(num_signals) CAN_Message<num_signals>
 
-#define MakeRXCanMessage(num_signals) CAN_Message<num_signals>
+#define RX_CAN_Message(num_signals) CAN_Message<num_signals>
 
-#define MakeTXCanMessage(num_signals) CAN_Message<num_signals>
+#define TX_CAN_Message(num_signals) CAN_Message<num_signals>
 
+/*
+    IMPORTANT
+    Endianness and signedness are not type enforced!
+    The macros are just for clarity purposes.
+*/
 #define MakeSignal(type, startBit, length, factor, offset) \
     std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset); 
 
@@ -403,18 +341,100 @@ private:
     std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, isSigned); 
 
 #define MakeSignalEndian(type, startBit, length, factor, offset, endianness) \
-    std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, true, endianness); 
+    std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, false, endianness); 
 
 #define MakeSignalSignedEndian(type, startBit, length, factor, offset, isSigned, endianness) \
     std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, isSigned, endianness); 
 
-typedef std::shared_ptr<CAN_Signal<uint8_t>>    CAN_Signal_UINT8;
-typedef std::shared_ptr<CAN_Signal<uint16_t>>   CAN_Signal_UINT16;
-typedef std::shared_ptr<CAN_Signal<uint32_t>>   CAN_Signal_UINT32;
-typedef std::shared_ptr<CAN_Signal<uint64_t>>   CAN_Signal_UINT64;
-typedef std::shared_ptr<CAN_Signal<int8_t>>     CAN_Signal_INT8;
-typedef std::shared_ptr<CAN_Signal<int16_t>>    CAN_Signal_INT16;
-typedef std::shared_ptr<CAN_Signal<int32_t>>    CAN_Signal_INT32;
-typedef std::shared_ptr<CAN_Signal<int64_t>>    CAN_Signal_INT64;
-typedef std::shared_ptr<CAN_Signal<float>>      CAN_Signal_FLOAT;
-typedef std::shared_ptr<CAN_Signal<bool>>       CAN_Signal_BOOL;
+// type definitions for signals for improving readability
+using CAN_Signal_UINT8  = std::shared_ptr<CAN_Signal<uint8_t>>;
+using CAN_Signal_UINT16 = std::shared_ptr<CAN_Signal<uint16_t>>;
+using CAN_Signal_UINT32 = std::shared_ptr<CAN_Signal<uint32_t>>;
+using CAN_Signal_UINT64 = std::shared_ptr<CAN_Signal<uint64_t>>;
+using CAN_Signal_INT8   = std::shared_ptr<CAN_Signal<int8_t>>;
+using CAN_Signal_INT16  = std::shared_ptr<CAN_Signal<int16_t>>;
+using CAN_Signal_INT32  = std::shared_ptr<CAN_Signal<int32_t>>;
+using CAN_Signal_INT64  = std::shared_ptr<CAN_Signal<int64_t>>;
+using CAN_Signal_FLOAT  = std::shared_ptr<CAN_Signal<float>>;
+using CAN_Signal_BOOL   = std::shared_ptr<CAN_Signal<bool>>;
+
+
+// Bit helper definitions
+
+static inline uint8_t getBit(const std::array<uint8_t, 8>& data, uint16_t bitIndex) {
+    return (data[bitIndex / 8] >> (bitIndex % 8)) & 1u;
+}
+
+static inline void setBit(std::array<uint8_t, 8>& data, uint16_t bitIndex, uint8_t v) {
+    uint8_t &b = data[bitIndex / 8];
+    uint8_t mask = uint8_t(1u << (bitIndex % 8));
+    if (v) b |= mask;
+    else   b &= uint8_t(~mask);
+}
+
+static inline uint64_t extractRawLE(const std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length)
+{
+    assert(length >= 1 && length <= 64);
+    uint64_t raw = 0;
+    for (uint8_t i = 0; i < length; ++i) {
+        raw |= (uint64_t)getBit(data, startBit + i) << i;
+    }
+    return raw;
+}
+
+static inline void insertRawLE(std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length, uint64_t raw)
+{
+    assert(length >= 1 && length <= 64);
+    for (uint8_t i = 0; i < length; ++i) {
+        setBit(data, startBit + i, (raw >> i) & 1u);
+    }
+}
+
+static inline uint16_t BENextBit(uint16_t currentBit) {
+    uint16_t byte = currentBit / 8;
+    uint16_t bit  = currentBit % 8;
+
+    if (bit == 0) {
+        return uint16_t((byte + 1) * 8 + 7);
+    }
+    return uint16_t(byte * 8 + (bit - 1));
+}
+
+static inline uint64_t extractRawBE(const std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length)
+{
+    assert(length >= 1 && length <= 64);
+    uint64_t raw = 0;
+    uint16_t p = startBit;
+
+    for (uint8_t i = 0; i < length; ++i) {
+        raw = (raw << 1) | (uint64_t)getBit(data, p);
+        p = BENextBit(p);
+    }
+    return raw;
+}
+
+static inline void insertRawBE(std::array<uint8_t, 8>& data, uint16_t startBit, uint8_t length, uint64_t raw)
+{
+    assert(length >= 1 && length <= 64);
+    uint16_t p = startBit;
+
+    for (uint8_t i = 0; i < length; ++i) {
+        uint8_t bit = (raw >> (length - 1 - i)) & 1u;
+        setBit(data, p, bit);
+        p = BENextBit(p);
+    }
+}
+
+static inline int64_t signExtend(uint64_t raw, uint8_t length) {
+    if (length == 64) return (int64_t)raw;
+    uint64_t sign = 1ULL << (length - 1);
+    if (raw & sign) {
+        uint64_t mask = ~((1ULL << length) - 1ULL);
+        return (int64_t)(raw | mask);
+    }
+    return (int64_t)raw;
+}
+
+static inline uint64_t maskN(uint8_t n) {
+    return (n == 64) ? ~0ULL : ((1ULL << n) - 1ULL);
+}
