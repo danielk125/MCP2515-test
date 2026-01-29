@@ -11,32 +11,6 @@
 
 typedef uint64_t RawSignalValue;
 
-enum class SignalType {
-    UINT8,
-    UINT16,
-    UINT32,
-    UINT64,
-    INT8,
-    INT16,
-    INT32,
-    INT64,
-    FLOAT,
-    BOOL
-};
-
-template <class T> struct SignalTypeOf;
-
-template <> struct SignalTypeOf<uint8_t>  { static constexpr SignalType value = SignalType::UINT8;  };
-template <> struct SignalTypeOf<uint16_t> { static constexpr SignalType value = SignalType::UINT16; };
-template <> struct SignalTypeOf<uint32_t> { static constexpr SignalType value = SignalType::UINT32; };
-template <> struct SignalTypeOf<uint64_t> { static constexpr SignalType value = SignalType::UINT64; };
-template <> struct SignalTypeOf<int8_t>   { static constexpr SignalType value = SignalType::INT8;   };
-template <> struct SignalTypeOf<int16_t>  { static constexpr SignalType value = SignalType::INT16;  };
-template <> struct SignalTypeOf<int32_t>  { static constexpr SignalType value = SignalType::INT32;  };
-template <> struct SignalTypeOf<int64_t>  { static constexpr SignalType value = SignalType::INT64;  };
-template <> struct SignalTypeOf<float>    { static constexpr SignalType value = SignalType::FLOAT;  };
-template <> struct SignalTypeOf<bool>     { static constexpr SignalType value = SignalType::BOOL;   };
-
 enum class Endianness {
     littleEndian,
     bigEndian
@@ -120,7 +94,7 @@ static inline uint64_t maskN(uint8_t n) {
     return (n == 64) ? ~0ULL : ((1ULL << n) - 1ULL);
 }
 
-class ICAN_Signal {
+struct ICAN_Signal {
     virtual ~ICAN_Signal() = default;
 
     virtual void decode(const std::array<uint8_t, 8>& data) = 0;
@@ -132,10 +106,7 @@ template <typename T>
 class CAN_Signal : public ICAN_Signal {
 public:
     CAN_Signal(uint8_t startBit, uint8_t length, double factor, double offset, bool isSigned = true, Endianness endian = Endianness::littleEndian) :
-    _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian) 
-    {
-        _sRawValue = 0;
-    }
+    _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian), _sRawValue(0) {}
 
     uint8_t startBit() { return _startBit; }
     uint8_t length() { return _length; }
@@ -311,7 +282,7 @@ public:
         _isRX(true),
         _last_recv_time(0)
     {
-        static_assert(sizeof...(signals) == num_signals - 1, "wrong number of signals");
+        static_assert(sizeof...(signals) == num_signals, "wrong number of signals");
         static_assert((is_shared_ptr_to_ican_signal<std::decay_t<Ps>>::value && ...),
                   "Signals must be shared_ptr to ICAN_Signal-derived");
         _bus.register_message(*this);
@@ -328,7 +299,7 @@ public:
         _signals{ std::static_pointer_cast<ICAN_Signal>(std::forward<Ps>(signals))... },
         _isRX(false)
     {
-        static_assert(sizeof...(signals) == num_signals - 1, "wrong number of signals");
+        static_assert(sizeof...(signals) == num_signals, "wrong number of signals");
         static_assert((is_shared_ptr_to_ican_signal<std::decay_t<Ps>>::value && ...),
                   "Signals must be shared_ptr to ICAN_Signal-derived");
         timerGroup.AddTimer(_transmit_timer);
@@ -343,7 +314,7 @@ public:
     uint32_t id() { return _id; }
     uint8_t length() const override { return _length; }
     bool extended() { return _extended; }
-    bool isRX() { return _isRX; }
+    bool isRX() const override { return _isRX; }
 
     void decode_from(const CAN_Frame& frame){
         std::array<uint8_t, 8> data = frame._data;
@@ -353,7 +324,7 @@ public:
         _raw = tmp;
 
         for (int i = 0; i < num_signals; i++){
-            _signals.at(i).decode(data);
+            _signals.at(i)->decode(data);
         }
 
         if (_isRX && _callback_function) { _callback_function(); }
@@ -371,7 +342,7 @@ public:
         std::array<uint8_t, 8> data {};
 
         for (int i = 0; i < num_signals; i++){
-            _signals.at(i).encode(data);
+            _signals.at(i)->encode(data);
         }
 
         fr._data = data;
@@ -411,7 +382,7 @@ private:
     uint8_t _length;
     bool _extended;
     std::function<void(void)> _callback_function;
-    std::array<std::unique_ptr<ICAN_Signal>, num_signals> _signals;
+    std::array<std::shared_ptr<ICAN_Signal>, num_signals> _signals;
 
     bool _isRX;
     uint32_t _last_recv_time;
@@ -425,4 +396,25 @@ private:
 
 #define MakeTXCanMessage(num_signals) CAN_Message<num_signals>
 
+#define MakeSignal(type, startBit, length, factor, offset) \
+    std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset); 
 
+#define MakeSignalSigned(type, startBit, length, factor, offset, isSigned) \
+    std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, isSigned); 
+
+#define MakeSignalEndian(type, startBit, length, factor, offset, endianness) \
+    std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, true, endianness); 
+
+#define MakeSignalSignedEndian(type, startBit, length, factor, offset, isSigned, endianness) \
+    std::make_shared<CAN_Signal<type>>(startBit, length, factor, offset, isSigned, endianness); 
+
+typedef std::shared_ptr<CAN_Signal<uint8_t>>    CAN_Signal_UINT8;
+typedef std::shared_ptr<CAN_Signal<uint16_t>>   CAN_Signal_UINT16;
+typedef std::shared_ptr<CAN_Signal<uint32_t>>   CAN_Signal_UINT32;
+typedef std::shared_ptr<CAN_Signal<uint64_t>>   CAN_Signal_UINT64;
+typedef std::shared_ptr<CAN_Signal<int8_t>>     CAN_Signal_INT8;
+typedef std::shared_ptr<CAN_Signal<int16_t>>    CAN_Signal_INT16;
+typedef std::shared_ptr<CAN_Signal<int32_t>>    CAN_Signal_INT32;
+typedef std::shared_ptr<CAN_Signal<int64_t>>    CAN_Signal_INT64;
+typedef std::shared_ptr<CAN_Signal<float>>      CAN_Signal_FLOAT;
+typedef std::shared_ptr<CAN_Signal<bool>>       CAN_Signal_BOOL;

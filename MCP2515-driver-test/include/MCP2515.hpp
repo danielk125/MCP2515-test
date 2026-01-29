@@ -18,7 +18,7 @@ enum class BaudRate {
     kBaud125k = 125000
 };
 
-class MCP2515 : ICAN {
+class MCP2515 : public ICAN {
 private:
     ISpi& _spi;
     IGpio& _cs;
