@@ -11,6 +11,7 @@ def generate_signals(db_file, output_file):
 
     buses = db.get_buses()
     messages_dict = db.get_messages()
+    
     with open(output_file, "w") as f:
         for message in messages_dict.values():
             signals = message.get_signals()
@@ -21,8 +22,6 @@ def generate_signals(db_file, output_file):
                 can_msg_str += ", " + signal.signal_name
             can_msg_str += "}};"
             f.write(can_msg_str + "\n\n")
-        # write string
-        # Make CANMessage array with specific size, name, bus, id, and all the signals
         
 
         
