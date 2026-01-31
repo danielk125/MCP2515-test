@@ -8,6 +8,8 @@
 #include <functional>
 #include <type_traits>
 
+#include <Arduino.h>
+
 // Bit helpers -- defined at the bottom
 static inline uint8_t  getBit(const std::array<uint8_t, 8>& data, uint16_t bitIndex);
 static inline void     setBit(std::array<uint8_t, 8>& data, uint16_t bitIndex, uint8_t v);
@@ -37,7 +39,7 @@ struct ICAN_Signal {
 template <typename T>
 class CAN_Signal : public ICAN_Signal {
 public:
-    CAN_Signal(uint8_t startBit, uint8_t length, double factor, double offset, bool isSigned = true, Endianness endian = Endianness::littleEndian) :
+    CAN_Signal(uint8_t startBit, uint8_t length, double factor, double offset, bool isSigned = false, Endianness endian = Endianness::littleEndian) :
     _startBit(startBit), _length(length), _factor(factor), _offset(offset), _isSigned(isSigned), _endian(endian), _sRawValue(0) {}
 
     uint8_t startBit() { return _startBit; }
@@ -187,10 +189,14 @@ public:
 
     template<class U>
     struct is_shared_ptr_to_ican_signal<std::shared_ptr<U>>
-    : std::bool_constant<std::is_base_of_v<ICAN_Signal, U>> {};
+        : std::bool_constant<std::is_base_of_v<ICAN_Signal, U>> {};
+
+    template <class... Ts>
+    using enable_if_all_signals_t =
+        std::enable_if_t<(is_shared_ptr_to_ican_signal<std::decay_t<Ts>>::value && ...), int>;
 
     // Constructor for RX message with no callback
-    template <class... Ps>
+    template <class... Ps, enable_if_all_signals_t<Ps...> = 0>
     CAN_Message(CAN_Bus& bus, uint32_t id, bool extended, uint8_t length, Ps&&... signals) : 
         CAN_Message(bus, 
                     id, 
@@ -259,7 +265,7 @@ public:
 
         if (_isRX && _callback_function) { _callback_function(); }
 
-        _last_recv_time = _bus.get_time();
+        //_last_recv_time = _bus.get_time();
     }
 
     CAN_Frame encode_to_frame() const {
