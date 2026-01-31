@@ -11,11 +11,11 @@ def generate_signals(db_file, output_file):
 
     buses = db.get_buses()
     messages_dict = db.get_messages()
-    
+
     with open(output_file, "w") as f:
         for message in messages_dict.values():
             signals = message.get_signals()
-            can_msg_str = f"CAN_MESSAGE<{len(signals)}> {{{list(message.buses)[0]}, {message.message_id}"
+            can_msg_str = f"CAN_MESSAGE<{len(signals)}> {{{list(message.buses)[0].get_cpp_bus_name()}, {message.message_id}"
             for signal in signals:
                 signal_str = signal.as_cpp_code()
                 f.write(signal_str + "\n")
